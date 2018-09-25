@@ -1,7 +1,6 @@
 require('dotenv').config()
 const express =  require("express"),
       mysql = require("mysql"),
-      q = require("q"),
       bodyParser = require("body-parser");
 
 var app = express();
@@ -9,23 +8,11 @@ const NODE_PORT = process.env.PORT;
 
 const sqlFindAllFilms = "SELECT * FROM film";
 
-const sqlFindOneBook = "SELECT idbooks, name, author, publish_year, isbn FROM books WHERE idbooks=?";
+const sqlFindAllBooks = "SELECT * FROM books LIMIT ? OFFSET ?"
+const sqlFindOneBook = "SELECT idbooks, name, author, publish_year, isbn FROM books WHERE idbooks=? ";
 
 console.log("DB USER : " + process.env.DB_USER);
 console.log("DB NAME : " + process.env.DB_NAME);
-/**
- * DB_HOST="localhost"
- * DB_PORT=3306
- * user=root
- * password=password@123
- * database=sakilla
- * 4
- */
-
-function A (){
-    var aaConfig = process.env.AA_CONFIG;
-    connectGoogle(aaConfig);
-}
 
 var pool = mysql.createPool({
     host: process.env.DB_HOST,
@@ -41,29 +28,32 @@ var makeQuery = (sql, pool)=>{
     console.log(sql);
     
     return  (args)=>{
-        var defer = q.defer();
-        pool.getConnection((err, connection)=>{
-            if(err){
-                defer.reject(err);
-                return;
-            }
-            console.log(args);
-            connection.query(sql, args || [], (err, results)=>{
-                connection.release();
+        let queryPromsie = new Promise((resolve, reject)=>{
+            pool.getConnection((err, connection)=>{
                 if(err){
-                    defer.reject(err);
+                    reject(err);
                     return;
                 }
-                console.log(">>> "+ results);
-                defer.resolve(results); 
-            })
+                console.log(args);
+                
+                connection.query(sql, args || [], (err, results)=>{
+                    connection.release();
+                    if(err){
+                        reject(err);
+                        return;
+                    }
+                    console.log(">>> "+ results);
+                    resolve(results); 
+                })
+            });
         });
-        return defer.promise;
+        return queryPromsie;
     }
 }
 
 var findAllFilms = makeQuery(sqlFindAllFilms, pool);
 var findOneBookById = makeQuery(sqlFindOneBook, pool);
+var findAllBooks = makeQuery(sqlFindAllBooks, pool);
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
@@ -77,9 +67,10 @@ app.get("/films", (req, res)=>{
     });
 });
 
+
 app.get("/books/:bookId", (req, res)=>{
     console.log("/books params !");
-    var bookId = req.params.bookId;
+    let bookId = req.params.bookId;
     console.log(bookId);
     findOneBookById([parseInt(bookId)]).then((results)=>{
         console.log(results);
@@ -94,12 +85,23 @@ app.get("/books", (req, res)=>{
     console.log("/books query !");
     var bookId = req.query.bookId;
     console.log(bookId);
-    findOneBookById([parseInt(bookId)]).then((results)=>{
-        console.log(results);
-        res.json(results);
-    }).catch((error)=>{
-        res.status(500).json(error);
-    })
+    if(typeof(bookId) === 'undefined' ){
+        console.log(">>>" + bookId);
+        findAllBooks([5,5]).then((results)=>{
+            console.log(results);
+            res.json(results);
+        }).catch((error)=>{
+            res.status(500).json(error);
+        });
+    }else{
+        findOneBookById([parseInt(bookId)]).then((results)=>{
+            console.log(results);
+            res.json(results);
+        }).catch((error)=>{
+            res.status(500).json(error);
+        });
+    }
+    
 })
 
 app.listen(NODE_PORT, ()=>{
